@@ -12,6 +12,8 @@ export interface SaveData {
   settings: {
     musicVolume: number;
     sfxVolume: number;
+    /** Semua suara dimatikan (musik dan efek). */
+    muted: boolean;
     roundTime: 30 | 60 | 99;
     screenShake: boolean;
     showFps: boolean;
@@ -29,6 +31,7 @@ export function createDefaultSave(): SaveData {
     settings: {
       musicVolume: 0.6,
       sfxVolume: 0.8,
+      muted: false,
       roundTime: 60,
       screenShake: true,
       showFps: true,
@@ -71,6 +74,7 @@ export function parseSave(raw: unknown): SaveData {
     settings: {
       musicVolume: readNumber(settings.musicVolume, base.settings.musicVolume, 0, 1),
       sfxVolume: readNumber(settings.sfxVolume, base.settings.sfxVolume, 0, 1),
+      muted: readBoolean(settings.muted, base.settings.muted),
       roundTime,
       screenShake: readBoolean(settings.screenShake, base.settings.screenShake),
       showFps: readBoolean(settings.showFps, base.settings.showFps),

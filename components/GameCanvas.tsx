@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Game } from "@/game/core/Game";
 import type { MatchResult } from "@/game/types";
+import { useUiSounds } from "./audio/useUiSounds";
 import PauseMenu from "./ui/PauseMenu";
 import ResultScreen from "./ui/ResultScreen";
 
@@ -14,6 +15,9 @@ export default function GameCanvas() {
   const gameRef = useRef<Game | null>(null);
   const [paused, setPaused] = useState(false);
   const [result, setResult] = useState<MatchResult | null>(null);
+
+  // Bunyi hover dan klik untuk semua tombol (menu jeda, layar hasil, tombol menu).
+  useUiSounds();
 
   useEffect(() => {
     const canvas = canvasRef.current;

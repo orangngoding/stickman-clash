@@ -1,4 +1,5 @@
 import Link from "next/link";
+import MenuAudio from "@/components/audio/MenuAudio";
 
 // Aturan singkat yang ditampilkan di menu. Senjata tiap ronde mengikuti game/data/weapons.ts.
 const ROUNDS = [
@@ -18,11 +19,13 @@ const CONTROLS = [
   { keys: "L", action: "Serangan senjata (ronde 2 dan 3)" },
   { keys: "I", action: "Spesial (saat Rage penuh)" },
   { keys: "Esc", action: "Jeda" },
+  { keys: "M", action: "Suara nyala / mati" },
 ] as const;
 
 export default function Home() {
   return (
     <main className="flex min-h-dvh flex-col items-center justify-center gap-8 px-6 py-12">
+      <MenuAudio />
       <header className="text-center">
         <h1 className="font-display text-5xl tracking-wide text-cyan-400 sm:text-7xl">
           STICKMAN <span className="text-orange-400">CLASH</span>
@@ -35,6 +38,7 @@ export default function Home() {
       <nav aria-label="Menu utama" className="w-full max-w-sm">
         <Link
           href="/play"
+          data-sfx="start"
           className="block rounded-md bg-cyan-500 px-5 py-4 text-center font-display text-2xl text-slate-950 transition hover:bg-cyan-300"
         >
           PLAY

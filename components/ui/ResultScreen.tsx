@@ -72,6 +72,7 @@ export default function ResultScreen({ result, onPlayAgain, onMenu }: ResultScre
           <button
             type="button"
             onClick={onPlayAgain}
+            data-sfx="start"
             className="flex-1 rounded-md bg-cyan-500 px-5 py-3 font-display text-lg text-slate-950 transition hover:bg-cyan-300"
           >
             Main Lagi
@@ -79,6 +80,7 @@ export default function ResultScreen({ result, onPlayAgain, onMenu }: ResultScre
           <button
             type="button"
             onClick={onMenu}
+            data-sfx="back"
             className="flex-1 rounded-md border border-slate-600 px-5 py-3 font-display text-lg text-slate-100 transition hover:border-cyan-400 hover:text-cyan-300"
           >
             Menu

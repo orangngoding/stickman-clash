@@ -8,6 +8,7 @@ import {
 } from "../constants";
 import { clamp, easeOutQuad, lerp } from "../core/math";
 import { clearControlState, createControlState } from "../core/Input";
+import type { EventBus } from "../core/Events";
 import { StateMachine } from "../core/StateMachine";
 import { ANIMATIONS } from "../data/animations";
 import { HURTBOX_CROUCH, HURTBOX_STAND } from "../data/boxes";
@@ -34,6 +35,8 @@ import type {
 /** Kecepatan jalan acuan (Blade). Animasi jalan mengikuti kecepatan sebenarnya agar kaki tidak "meluncur". */
 const REFERENCE_SPEED = 5.0;
 const DEFAULT_BLEND = 6;
+/** Jarak jalan (piksel) antar bunyi langkah kaki. */
+const STEP_DISTANCE = 60;
 
 /**
  * Satu petarung. Pemain dan musuh AI memakai kelas yang sama, hanya beda sumber `controls`.
@@ -92,6 +95,11 @@ export class Fighter {
   private prevX: number;
   private prevY = FLOOR_Y;
 
+  /** Penerima peristiwa (suara). Diisi Game; null = tidak ada yang mendengarkan. */
+  events: EventBus | null = null;
+  /** Jarak jalan sejak bunyi langkah terakhir. */
+  private stepDistance = 0;
+
   /** Tombol virtual. Diisi Input (pemain) atau AI. */
   readonly controls = createControlState();
   readonly machine: StateMachine<FighterState, Fighter>;
@@ -141,7 +149,10 @@ export class Fighter {
         },
       })
       .add("walk", {
-        enter: (f) => f.setAnim("walk", 1),
+        enter: (f) => {
+          f.stepDistance = 0;
+          f.setAnim("walk", 1);
+        },
         update: (f) => {
           const dir = f.moveDirection();
           f.groundMove(dir);
@@ -153,6 +164,12 @@ export class Fighter {
           }
           // Maju (searah hadap) memutar animasi ke depan, mundur memutarnya terbalik.
           f.animStep = (Math.sign(f.vx) * f.facing * Math.abs(f.vx)) / REFERENCE_SPEED;
+          // Bunyi langkah kaki tiap beberapa langkah jalan.
+          f.stepDistance += Math.abs(f.vx);
+          if (f.stepDistance >= STEP_DISTANCE) {
+            f.stepDistance -= STEP_DISTANCE;
+            f.emitAction("step");
+          }
         },
       })
       .add("crouch", {
@@ -176,6 +193,7 @@ export class Fighter {
           f.vy = -f.character.jumpPower;
           f.grounded = false;
           f.setAnim("jump", 1);
+          f.emitAction("jump");
         },
         update: (f) => {
           f.airMove(f.moveDirection());
@@ -202,6 +220,7 @@ export class Fighter {
           f.stamina -= MOVEMENT.dash.staminaCost;
           f.setAnim(f.dashDirection === f.facing ? "dash" : "backdash", 1);
           f.vx = f.dashDirection * DASH_VELOCITIES[f.dashFrame++];
+          f.emitAction("dash");
         },
         update: (f) => {
           if (f.dashFrame >= MOVEMENT.dash.frames) {
@@ -222,6 +241,7 @@ export class Fighter {
           f.hasHit = false;
           f.chainWindow = 0;
           f.setAnim(move.anim, 1, 2, true);
+          if (move.id === "special") f.emitAction("specialStart");
         },
         update: (f) => f.updateAttack(),
         exit: (f) => {
@@ -254,6 +274,7 @@ export class Fighter {
       .add("getup", {
         enter: (f) => {
           f.setAnim("getUp", 1, 2);
+          f.emitAction("getUp");
           f.stunLeft = COMBAT.getUpFrames;
           f.invincibleFrames = COMBAT.getUpInvincible;
           f.comboHits = 0;
@@ -344,7 +365,14 @@ export class Fighter {
   }
 
   addRage(amount: number): void {
+    const before = this.rage;
     this.rage = clamp(this.rage + amount, 0, COMBAT.rageMax);
+    if (before < COMBAT.rageMax && this.rage >= COMBAT.rageMax) this.emitAction("rageFull");
+  }
+
+  /** Memancarkan peristiwa aksi sederhana (suara memakainya untuk lompat, dash, langkah, dll). */
+  private emitAction(type: "jump" | "dash" | "step" | "getUp" | "rageFull" | "specialStart"): void {
+    this.events?.emit({ type, fighter: this.id, x: this.x });
   }
 
   // ---------- Reaksi terkena serangan (dipanggil CombatSystem) ----------
@@ -450,6 +478,7 @@ export class Fighter {
     this.airHit = false;
     this.buffered = null;
     this.bufferLeft = 0;
+    this.stepDistance = 0;
     this.machine.change("idle");
   }
 
@@ -524,7 +553,19 @@ export class Fighter {
 
     // Serangan lompat menahan pose di udara dan baru menjalankan recovery setelah mendarat.
     const waitForLanding = m.landingRecovery === true && !this.grounded && this.attackFrame >= activeEnd;
-    if (!waitForLanding) this.attackFrame++;
+    if (!waitForLanding) {
+      this.attackFrame++;
+      // Bunyi ayunan tepat saat fase active dimulai (saat serangan benar-benar keluar).
+      if (this.attackFrame === m.startup) {
+        this.events?.emit({
+          type: "swing",
+          fighter: this.id,
+          x: this.x,
+          moveId: m.id,
+          weaponKind: this.weapon?.kind ?? null,
+        });
+      }
+    }
 
     if (this.grounded) this.groundMove(0);
     else this.airMove(this.moveDirection());

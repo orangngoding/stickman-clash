@@ -100,7 +100,9 @@ export class Input {
   private readonly onKeyDown = (event: KeyboardEvent): void => {
     // Biarkan pintasan browser (Ctrl+R, Cmd+L, dst) bekerja.
     if (event.ctrlKey || event.metaKey || event.altKey) return;
-    if (BLOCKED_DEFAULT_CODES.has(event.code)) event.preventDefault();
+    // Kolom isian (mis. slider volume di menu jeda) tetap memakai tombol panah bawaannya.
+    const inField = event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement;
+    if (BLOCKED_DEFAULT_CODES.has(event.code) && !inField) event.preventDefault();
     if (event.repeat || this.down.has(event.code)) return;
     this.down.add(event.code);
     this.pressed.add(event.code);

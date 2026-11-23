@@ -1,4 +1,6 @@
 import { AIController } from "../ai/AIController";
+import { audio } from "../audio/AudioEngine";
+import { GameAudio } from "../audio/GameAudio";
 import { FLOOR_Y, LOGICAL_HEIGHT, LOGICAL_WIDTH } from "../constants";
 import { aiProfileForRound } from "../data/ai";
 import { CHARACTERS } from "../data/characters";
@@ -14,6 +16,7 @@ import { StickmanRenderer } from "../render/StickmanRenderer";
 import type { GameStateId, MatchResult, PlayerMatchStats, RoundOutcome } from "../types";
 import { loadSave } from "../../lib/storage";
 import { Camera } from "./Camera";
+import { EventBus } from "./Events";
 import { Input } from "./Input";
 import { Loop } from "./Loop";
 import { Match } from "./Match";
@@ -51,6 +54,10 @@ export class Game {
   private readonly hud = new HudRenderer();
   private readonly debugRenderer = new DebugRenderer();
 
+  /** Peristiwa dari logika game (hit, lompat, dll). Didengarkan GameAudio untuk membunyikan suara. */
+  private readonly events = new EventBus();
+  private readonly gameAudio: GameAudio;
+
   private readonly world = new World(
     new Fighter("p1", CHARACTERS.blade, START_X.p1, 1),
     new Fighter("p2", CHARACTERS.brawler, START_X.p2, -1),
@@ -64,6 +71,11 @@ export class Game {
   private fightBannerLeft = 0;
   private slowMoActive = false;
   private debug = false;
+  /** Detik timer terakhir yang sudah dibunyikan, dan hitungan mundur detak jantung HP tipis. */
+  private lastSecond = 0;
+  private heartbeatLeft = 0;
+  /** Jeda ditutup karena pertandingan diulang: bunyi "lanjut" dilewati. */
+  private suppressResumeSound = false;
 
   private fps = 0;
   private ups = 0;
@@ -83,6 +95,12 @@ export class Game {
     this.arena = new ArenaRenderer(ctx);
     this.match = new Match(loadSave().settings.roundTime, MATCH.roundsToWin);
 
+    // Suara: logika hanya memancarkan peristiwa, GameAudio yang menerjemahkannya jadi bunyi.
+    this.world.events = this.events;
+    this.p1.events = this.events;
+    this.p2.events = this.events;
+    this.gameAudio = new GameAudio(this.events);
+
     this.machine = new StateMachine<GameStateId, Game>(this)
       .add("BOOT", {
         update: (g) => g.beginMatch(),
@@ -95,8 +113,15 @@ export class Game {
         update: (g) => g.updateFighting(),
       })
       .add("PAUSED", {
-        enter: (g) => g.callbacks.onPauseChange?.(true),
-        exit: (g) => g.callbacks.onPauseChange?.(false),
+        enter: (g) => {
+          g.callbacks.onPauseChange?.(true);
+          g.events.emit({ type: "pause" });
+        },
+        exit: (g) => {
+          g.callbacks.onPauseChange?.(false);
+          if (!g.suppressResumeSound) g.events.emit({ type: "resume" });
+          g.suppressResumeSound = false;
+        },
         update: (g) => {
           if (g.input.justPressed(PAUSE_KEY)) g.machine.change("FIGHTING");
         },
@@ -125,6 +150,7 @@ export class Game {
   }
 
   start(): void {
+    audio.installUnlock();
     this.input.attach();
     document.addEventListener("visibilitychange", this.handleVisibility);
     window.addEventListener("resize", this.resize);
@@ -140,6 +166,8 @@ export class Game {
     this.destroyed = true;
     this.loop.stop();
     this.input.detach();
+    this.gameAudio.dispose();
+    this.events.clear();
     document.removeEventListener("visibilitychange", this.handleVisibility);
     window.removeEventListener("resize", this.resize);
     this.resizeObserver?.disconnect();
@@ -155,6 +183,7 @@ export class Game {
 
   /** Mengulang pertandingan dari ronde 1. */
   restartMatch(): void {
+    if (this.machine.current === "PAUSED") this.suppressResumeSound = true;
     this.beginMatch();
   }
 
@@ -163,6 +192,7 @@ export class Game {
   private step(): void {
     this.clock.tick();
     if (this.input.justPressed("KeyH")) this.debug = !this.debug;
+    if (this.input.justPressed("KeyM")) audio.toggleMuted();
     this.machine.update();
     this.input.endFrame();
   }
@@ -192,13 +222,23 @@ export class Game {
     this.fightBannerLeft = 0;
     this.slowMoActive = false;
     this.hud.resetLag(this.p1, this.p2);
+    this.lastSecond = this.match.secondsLeft;
+    this.heartbeatLeft = 0;
+    this.events.emit({ type: "roundStart", round: this.match.round });
   }
 
   /** Hitung mundur: pemain belum bisa bergerak, tapi stickman tetap bernapas. */
   private updateRoundStart(): void {
     this.updateIdleWorld();
-    if (this.machine.framesInState >= MATCH.introFrames + MATCH.countdownStep * 3) {
+    const frame = this.machine.framesInState;
+    // Bunyi hitung mundur tepat saat angka 3, 2, 1 muncul.
+    const since = frame - MATCH.introFrames;
+    if (since >= 0 && since % MATCH.countdownStep === 0 && since < MATCH.countdownStep * 3) {
+      this.events.emit({ type: "countdown", number: (3 - since / MATCH.countdownStep) as 1 | 2 | 3 });
+    }
+    if (frame >= MATCH.introFrames + MATCH.countdownStep * 3) {
       this.fightBannerLeft = MATCH.fightBannerFrames;
+      this.events.emit({ type: "fight" });
       this.machine.change("FIGHTING");
     }
   }
@@ -216,14 +256,34 @@ export class Game {
     this.world.step();
     this.hud.update(this.p1, this.p2);
     if (this.fightBannerLeft > 0) this.fightBannerLeft--;
+    this.updateWarningSounds();
 
     if (this.p1.isKo || this.p2.isKo || this.match.timerFrames === 0) {
       this.machine.change("ROUND_END");
     }
   }
 
+  /** Tik timer di 10 detik terakhir dan detak jantung saat HP pemain tinggal sedikit. */
+  private updateWarningSounds(): void {
+    const seconds = this.match.secondsLeft;
+    if (seconds !== this.lastSecond) {
+      this.lastSecond = seconds;
+      if (seconds > 0 && seconds <= 10) this.events.emit({ type: "timerTick", seconds });
+    }
+    const hpRatio = this.p1.hp / this.p1.character.maxHp;
+    if (hpRatio > 0 && hpRatio < 0.25) {
+      if (this.heartbeatLeft-- <= 0) {
+        this.events.emit({ type: "lowHp" });
+        this.heartbeatLeft = 75;
+      }
+    } else {
+      this.heartbeatLeft = 0;
+    }
+  }
+
   private enterRoundEnd(): void {
     this.roundOutcome = this.match.resolveRound(this.p1, this.p2);
+    this.events.emit({ type: "roundEnd", reason: this.roundOutcome.reason, winner: this.roundOutcome.winner });
     this.p1.clearControls();
     this.p2.clearControls();
 
@@ -259,7 +319,9 @@ export class Game {
   /** Pemenang ronde merayakan. Yang kalah karena waktu habis tertunduk. */
   private celebrate(): void {
     const outcome = this.roundOutcome;
-    if (!outcome || !outcome.winner) return;
+    if (!outcome) return;
+    this.events.emit({ type: "roundResult", winner: outcome.winner, matchOver: this.match.winner !== null });
+    if (!outcome.winner) return;
     const winner = outcome.winner === "p1" ? this.p1 : this.p2;
     const loser = outcome.winner === "p1" ? this.p2 : this.p1;
     winner.enterVictory();
@@ -270,6 +332,7 @@ export class Game {
     const winner = this.match.winner;
     if (!winner) return;
     this.clock.timeScale = 1;
+    this.events.emit({ type: "matchEnd", winner });
     const result: MatchResult = {
       winner,
       rounds: this.match.round,

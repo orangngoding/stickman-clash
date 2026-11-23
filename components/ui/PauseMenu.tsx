@@ -1,5 +1,6 @@
 "use client";
 
+import AudioControls from "../audio/AudioControls";
 import { useDialogFocus } from "./useDialogFocus";
 
 interface PauseMenuProps {
@@ -27,16 +28,17 @@ export default function PauseMenu({ onResume, onRestart, onMenu }: PauseMenuProp
         <h2 id="pause-title" className="mb-1 font-display text-3xl text-cyan-400">
           JEDA
         </h2>
-        <button type="button" onClick={onResume} className={BUTTON}>
+        <button type="button" onClick={onResume} data-sfx="none" className={BUTTON}>
           Lanjut
         </button>
         <button type="button" onClick={onRestart} className={BUTTON}>
           Ulangi
         </button>
-        <button type="button" onClick={onMenu} className={BUTTON}>
+        <button type="button" onClick={onMenu} data-sfx="back" className={BUTTON}>
           Kembali ke Menu
         </button>
-        <p className="mt-1 text-xs text-slate-500">Tekan Esc untuk melanjutkan.</p>
+        <AudioControls />
+        <p className="mt-1 text-xs text-slate-500">Tekan Esc untuk melanjutkan. M: suara nyala/mati.</p>
       </div>
     </div>
   );

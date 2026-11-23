@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import type { KeyboardEvent, RefObject } from "react";
 
-const FOCUSABLE = "button:not([disabled]), a[href], [tabindex]:not([tabindex='-1'])";
+const FOCUSABLE = "button:not([disabled]), input:not([disabled]), a[href], [tabindex]:not([tabindex='-1'])";
 
 /**
  * Aksesibilitas dialog (GDD Bagian 13): fokus langsung ke tombol pertama saat dialog muncul,
